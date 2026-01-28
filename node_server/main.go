@@ -158,6 +158,27 @@ func (n *Node) JoinServerList(addrlist string, key int) error {
 	return fmt.Errorf("registration failed: %s", response)
 }
 
+// ///
+func (n *Node) GetNodesList() (string, error) {
+	conn, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("GET_LIST\n"))
+
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(response), nil
+}
+
+////
+
 func main() {
 	if len(os.Args) < 3 {
 		fmt.Println("Usage: go run main.go <id> <port>")
@@ -246,6 +267,15 @@ func main() {
 			if err != nil {
 				fmt.Println("Erreur:", err)
 			}
+		////
+		case "LIST":
+			list, err := node.GetNodesList()
+			if err != nil {
+				fmt.Println("Error:", err)
+			} else {
+				fmt.Println(list)
+			}
+		/////
 		case "QUIT":
 			fmt.Println("Shutting down node...")
 			node.Stop()

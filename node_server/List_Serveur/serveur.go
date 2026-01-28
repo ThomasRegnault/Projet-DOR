@@ -111,7 +111,8 @@ func handleConnection(conn net.Conn) {
 		fmt.Printf("[+] Node %s registered (Port: %d, Total: %d)\n", id, port, count)
 		conn.Write([]byte("INIT_ACK:" + id + "\n"))
 
-	///case "LIST": // TO DO : SEND THE LIST TO THE NODE
+	case "GET_LIST":
+		conn.Write([]byte(getNodesList()))
 
 	case "QUIT":
 		// Format: QUIT:id
@@ -137,6 +138,31 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
+}
+
+func getNodesList() string {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if nbrNodes == 0 {
+		return "LIST:empty\n"
+	}
+
+	var result strings.Builder
+	result.WriteString("LIST:")
+
+	first := true
+	for _, info := range nodes {
+		if !first {
+			result.WriteString(",")
+		}
+		// Format: id|port|key
+		result.WriteString(fmt.Sprintf("%s|%d|%d", info.ID, info.Port, info.Key))
+		first = false
+	}
+	result.WriteString("\n")
+
+	return result.String()
 }
 
 func showNodes() {
