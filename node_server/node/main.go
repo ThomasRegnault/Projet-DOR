@@ -46,14 +46,14 @@ func NewNode(id string, serverAddr string) (*model.Node, error) {
 
 }
 
-func FetchKeyFromServer(port int, serverAddr string) (*rsa.PublicKey, error) {
+func FetchKeyFromServer(addr string, serverAddr string) (*rsa.PublicKey, error) {
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	conn.Write([]byte(fmt.Sprintf("GET_KEY:%d\n", port)))
+	conn.Write([]byte(fmt.Sprintf("GET_KEY:%s\n", addr)))
 
 	reader := bufio.NewReader(conn)
 	response, err := reader.ReadString('\n')
@@ -81,7 +81,7 @@ func FetchKeyFromServer(port int, serverAddr string) (*rsa.PublicKey, error) {
 
 func main() {
 	// Annuaire local qui a partir d'1 port donne la clé publique (partie qui sera rempli grâce au serveur plus tard)
-	publicKeys := make(map[int]*rsa.PublicKey)
+	publicKeys := make(map[string]*rsa.PublicKey)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <id>")
@@ -111,12 +111,12 @@ func main() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("\nCommandes disponibles:")
-	fmt.Println("  FETCH:<port>                      - Récupérer la clé publique d'un noeud")
-	fmt.Println("  MSG:<port>:<message>              - Message direct")
-	fmt.Println("  RELAY:<port>:<port>:...:<message> - Relai multi-hop (route manuelle)")
-	fmt.Println("  SEND:<nbr>:<port>:<message>       - Envoi auto (route aléatoire)")
-	fmt.Println("  QUIT:                             - Quitter")
-	fmt.Println("  LIST:                             - Afficher la liste des noeuds enregistrés")
+	fmt.Println("  FETCH:<ip>:<port>                              - Récupérer la clé publique d'un noeud")
+	fmt.Println("  MSG:<ip>:<port>:<message>                      - Message direct")
+	fmt.Println("  RELAY:<ip>:<port>,<ip>:<port>,...,<message>    - Relai multi-hop (route manuelle)")
+	fmt.Println("  SEND:<nbr>:<ip>:<port>:<message>              - Envoi auto (route aléatoire)")
+	fmt.Println("  QUIT:                                          - Quitter")
+	fmt.Println("  LIST:                                          - Afficher la liste des noeuds enregistrés")
 	fmt.Println()
 
 	for scanner.Scan() {
@@ -135,15 +135,10 @@ func main() {
 		case "FETCH":
 			// Format: FETCH:<port>
 			// Plus tard on demandera au serveur cette info
-			targetPort, err := strconv.Atoi(data)
-			if err != nil {
-				fmt.Println("Port invalide")
-				continue
-			}
+			targetAddr := data
 
 			//Connexion au nœud avec le port specifiée
-			addr := fmt.Sprintf("localhost:%d", targetPort)
-			conn, err := net.Dial("tcp", addr)
+			conn, err := net.Dial("tcp", targetAddr)
 			if err != nil {
 				fmt.Println("Erreur connexion:", err)
 				continue
@@ -166,59 +161,52 @@ func main() {
 
 			// on peut ensuite la stoquer dans le dico annuaire port -> clé pub
 			if pubKey, ok := pubKeyInterface.(*rsa.PublicKey); ok {
-				publicKeys[targetPort] = pubKey
-				fmt.Printf("Enregistrement de la clé (publique) du port réalisé avec succée %d!\n", targetPort)
+				publicKeys[targetAddr] = pubKey
+				fmt.Printf("Enregistrement de la clé (publique) du port réalisé avec succée %d!\n", targetAddr)
 			}
 
 		case "MSG":
 			// Format: MSG:<port>:<message>
-			subParts := strings.SplitN(data, ":", 2)
-			if len(subParts) < 2 {
+			subParts := strings.SplitN(data, ":", 3)
+			if len(subParts) < 3 {
 				fmt.Println("Invalid MSG format. Use MSG:<port>:<message>")
 				continue
 			}
-			dst, err := strconv.Atoi(subParts[0])
-			if err != nil {
-				fmt.Println("Error parsing destination port:", err)
-				continue
-			}
-			data = subParts[1]
+			dstAddr := subParts[0] + ":" + subParts[1]
+			msg := subParts[2]
 
-			onion, err := Encapsulator_func(data, []int{dst}, publicKeys, serverAddr)
+			onion, err := Encapsulator_func(msg, []string{dstAddr}, publicKeys, serverAddr)
 			if err != nil {
 				fmt.Println("Erreur Encapsulator_func:", err)
 				continue
 			}
 
-			err = node.SendTo(dst, onion)
+			err = node.SendTo(dstAddr, onion)
 			if err != nil {
 				fmt.Println("Error sending message:", err)
 			}
 		case "RELAY":
-			// Format of data : RELAY:<port1>:<port2>:...:<message>
-			//On récup qui qu'il y a après le dernier : càd le msg
-			//Tel qu'il est implémenté, si le message contient :, ça ne marche pas
-			//(il faudrait parcourir tout les bouts et vérif si c'est un num de port possible
-			//ou non et ensuite reconstruire le message en fonction... flemme pour l'instant)
+			// Format: RELAY:<ip1>:<port1>,<ip2>:<port2>,...,<message>
+			// Les adresses sont séparées par des virgules, le message est après la dernière virgule
 
-			lastColon := strings.LastIndex(data, ":")
-			if lastColon == -1 {
+			lastComma := strings.LastIndex(data, ",")
+			if lastComma == -1 {
+				fmt.Println("Format: RELAY:<ip>:<port>,<ip>:<port>,...,<message>")
 				continue
 			}
 
-			portsStr := strings.Split(data[:lastColon], ":")
-			message := data[lastColon+1:]
+			addrsStr := strings.Split(data[:lastComma], ",")
+			message := data[lastComma+1:]
 
-			var route []int //tableau de ports (sous forme d'entier et pas de stp)
-			for _, pStr := range portsStr {
-				p, _ := strconv.Atoi(pStr)
-				route = append(route, p)
+			var route []string // tableau d'adresses (ip:port)
+			for _, addr := range addrsStr {
+				route = append(route, strings.TrimSpace(addr))
 			}
 
 			onion, err := Encapsulator_func(message, route, publicKeys, serverAddr)
 			if err != nil {
 				fmt.Println("Erreur Encapsulator_func:", err)
-				continue
+					continue
 			}
 
 			err = node.SendTo(route[0], onion)
@@ -227,11 +215,11 @@ func main() {
 			}
 
 		case "SEND":
-			// Format: SEND:<nbr_relays>:<port_dest>:<message>
+			// Format: SEND:<nbr_relays>:<ip>:<port>:<message>
 			// Build an auto route rand from a nbr of relays
-			subParts := strings.SplitN(data, ":", 3)
-			if len(subParts) < 3 {
-				fmt.Println("Format: SEND:<nbr_relays>:<port>:<message>")
+			subParts := strings.SplitN(data, ":", 4)
+			if len(subParts) < 4 {
+				fmt.Println("Format: SEND:<nbr_relays>:<ip>:<port>:<message>")
 				continue
 			}
 
@@ -241,12 +229,8 @@ func main() {
 				continue
 			}
 
-			destPort, err := strconv.Atoi(subParts[1])
-			if err != nil {
-				fmt.Println("Port destination invalide:", subParts[1])
-				continue
-			}
-			message := subParts[2]
+			destAddr := subParts[1] + ":" + subParts[2] // ip:port
+			message := subParts[3]
 
 			// Recuperation de la liste des nodes
 			listStr, err := node.GetNodesList()
@@ -260,36 +244,39 @@ func main() {
 				continue
 			}
 
-			// Parser la réponse LIST:name|port|key,name|port|key,...
-			listData := strings.TrimPrefix(listStr, "LIST:") //name|port|key,name|port|key
-			entries := strings.Split(listData, ",")          // [name|port|key, name|port|key,...]
+			// Parser la réponse LIST:name|ip|port|key,name|ip|port|key,...
+			listData := strings.TrimPrefix(listStr, "LIST:")
+			entries := strings.Split(listData, ",")
 
-			var candidates []int
+			var candidates []string // adresses ip:port des candidats
 			destFound := false
+			nodeAddr := fmt.Sprintf("%s:%d", node.ServerAddr[:strings.LastIndex(node.ServerAddr, ":")], node.Port)
+			// On construit l'adresse locale du noeud pour l'exclure de la route
+
 			for _, entry := range entries {
-				fields := strings.SplitN(entry, "|", 3)
-				if len(fields) < 2 {
+				fields := strings.SplitN(entry, "|", 4)
+				if len(fields) < 4 {
 					continue
 				}
-				p, err := strconv.Atoi(fields[1])
-				if err != nil {
-					continue
-				}
-				if p == destPort {
+				ip := fields[1]
+				port := fields[2]
+				addr := ip + ":" + port
+
+				if addr == destAddr {
 					destFound = true
 				}
-				// Exclude the port of this node and the port of the dest from the route
-				if p != node.Port && p != destPort {
-					candidates = append(candidates, p)
+				// Exclude this node and the destination from relay candidates
+				if addr != nodeAddr && addr != destAddr {
+					candidates = append(candidates, addr)
 				}
 			}
 
 			if !destFound {
-				fmt.Printf("Destination :%d introuvable dans le réseau\n", destPort)
+				fmt.Printf("Destination %s introuvable dans le réseau\n", destAddr)
 				continue
 			}
 
-			// Select 3 relais
+			// Select relays
 			if numRelays > len(candidates) {
 				numRelays = len(candidates)
 			}
@@ -307,7 +294,7 @@ func main() {
 			relays := candidates[:numRelays]
 
 			// Build the route : [relays..., dest]
-			route := append(relays, destPort)
+			route := append(relays, destAddr)
 			fmt.Printf("Route automatique: %v\n", route)
 
 			// Encapsulate in onion layers and send to the first node
@@ -323,8 +310,8 @@ func main() {
 			} else {
 				fmt.Println("Message envoyé via route automatique !")
 			}
-
 		////
+
 		case "LIST":
 			list, err := node.GetNodesList()
 			if err != nil {
@@ -346,7 +333,7 @@ func main() {
 }
 
 // Encapsulator_func wraps the message in multiple encryption layers
-func Encapsulator_func(message string, route []int, publicKeys map[int]*rsa.PublicKey, serverAddr string) (string, error) {
+func Encapsulator_func(message string, route []string, publicKeys map[string]*rsa.PublicKey, serverAddr string) (string, error) {
 
 	//Fetching keys if needed
 	for _, port := range route {
@@ -364,10 +351,10 @@ func Encapsulator_func(message string, route []int, publicKeys map[int]*rsa.Publ
 	currentPayload := "MSG:" + strings.ReplaceAll(uuid.New().String(), ":", "-") + ":" + message //encapsulation du mess final
 
 	for i := len(route) - 1; i >= 0; i-- {
-		targetPort := route[i]               //on recup le port de noeud
-		pubKey, ok := publicKeys[targetPort] //sa clé publique pour le chiffrement
+		targetAddr := route[i]               //on recup le port de noeud
+		pubKey, ok := publicKeys[targetAddr] //sa clé publique pour le chiffrement
 		if !ok {
-			return "", fmt.Errorf("clé publique manquante pour le port %d", targetPort)
+			return "", fmt.Errorf("clé publique manquante pour %s", targetAddr)
 		}
 
 		//chiffrement "duo" (AES puis RSA):
@@ -391,7 +378,7 @@ func Encapsulator_func(message string, route []int, publicKeys map[int]*rsa.Publ
 		encoded := encodedKey + ":" + encodedPayload
 
 		if i > 0 { //si ce n'est pas le premier saut, il faut mettre un "header" (RELAY:PORT:msg_encrypted)
-			currentPayload = fmt.Sprintf("RELAY:%d:%s", targetPort, encoded)
+			currentPayload = fmt.Sprintf("RELAY:%s:%s", targetAddr, encoded)
 		} else { //si c'est le 1er saut (noyaux du message):
 			currentPayload = encoded
 		}

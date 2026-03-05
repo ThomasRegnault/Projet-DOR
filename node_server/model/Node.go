@@ -176,23 +176,19 @@ func (n *Node) handlerroutine(conn net.Conn) {
 	case "RELAY":
 		// Format: RELAY:<nextPort>:<rest>
 		// <rest> can be "MSG:message" or "RELAY:<port>:..."
-		subParts := strings.SplitN(data, ":", 2)
-		if len(subParts) < 2 {
+		subParts := strings.SplitN(data, ":", 3)
+		if len(subParts) < 3 {
 			fmt.Printf("[%s] RELAY format invalide\n", n.ID)
 			return
 		}
 
-		nextPort, err := strconv.Atoi(subParts[0])
-		if err != nil {
-			fmt.Printf("[%s] Port invalide: %s\n", n.ID, subParts[0])
-			return
-		}
+		nextAddr := subParts[0] + ":" + subParts[1] 
 
-		payload := subParts[1]
-		fmt.Printf("[%s] Relai vers :%d\n", n.ID, nextPort)
+		payload := subParts[2]
+		fmt.Printf("[%s] Relai vers %s\n", n.ID, nextAddr)
 
 		// Send the palyoad
-		err = n.SendTo(nextPort, payload)
+		err = n.SendTo(nextAddr, payload)
 		if err != nil {
 			fmt.Printf("[%s] Erreur relai: %s\n", n.ID, err)
 		}
@@ -202,10 +198,9 @@ func (n *Node) handlerroutine(conn net.Conn) {
 	}
 }
 
-func (n *Node) SendTo(targetPort int, message string) error {
+func (n *Node) SendTo(targetAddr string, message string) error {
 
-	addr := fmt.Sprintf("localhost:%d", targetPort)
-	conn, err := net.Dial("tcp", addr)
+	conn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
 		return err
 	}

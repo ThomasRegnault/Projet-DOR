@@ -161,15 +161,16 @@ func handleConnection(conn net.Conn) {
 
 	case "GET_KEY":
 		// Format GET_KEY:port
-		if len(parts) < 2 {
+		if len(parts) < 3 {
 			_, err := conn.Write([]byte("ERROR:Invalid format\n"))
 			if err != nil {
 				return
 			}
 			return
 		}
-
-		port, err := strconv.Atoi(parts[1])
+		
+		ip := parts[1]
+		port, err := strconv.Atoi(parts[2])
 		if err != nil {
 			_, err := conn.Write([]byte("ERROR:Invalid port\n"))
 			if err != nil {
@@ -181,11 +182,12 @@ func handleConnection(conn net.Conn) {
 		nodes, _ := data.GetNodesList()
 
 		for _, node := range nodes {
-			if node.Port == port {
+			if node.Ip == ip && node.Port == port {
 				_, err := conn.Write([]byte("KEY:" + node.PublicKey + "\n"))
 				if err != nil {
 					return
 				}
+				return
 			}
 		}
 
@@ -231,7 +233,7 @@ func getNodesList() string {
 		if i > 0 {
 			result.WriteString(",")
 		}
-		result.WriteString(fmt.Sprintf("%s|%d|%s", info.Name, info.Port, info.PublicKey))
+		result.WriteString(fmt.Sprintf("%s|%s|%d|%s", info.Name, info.Ip, info.Port, info.PublicKey))
 	}
 	result.WriteString("\n")
 
@@ -250,7 +252,7 @@ func showNodes() {
 		fmt.Println("  (aucun)")
 	} else {
 		for _, info := range nodes {
-			fmt.Printf("  . %s - Port: %d, Key: %s\n", info.Name, info.Port, info.PublicKey)
+			fmt.Printf("  . %s - Addr: %s:%d, Key: %s\n", info.Name, info.Ip, info.Port, info.PublicKey)
 		}
 	}
 	fmt.Printf("Total: %d\n\n", len(nodes))
@@ -268,7 +270,7 @@ func TestPing() {
 		}
 
 		for _, node := range nodes {
-			addr := fmt.Sprintf("localhost:%d", node.Port)
+			addr := fmt.Sprintf("%s:%d", node.Ip, node.Port)
 			conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 			if err != nil {
 				err := data.RemoveNode(node.Name)

@@ -1,6 +1,7 @@
 #!/bin/bash
 N=4 # par defaut
 SESSION="DOR"
+SERVER_ADDR="${SERVER_ADDR:-localhost:8080}"
 
 while getopts "n:" opt; do
   case $opt in
@@ -19,8 +20,8 @@ tmux new-session -d -s $SESSION -n "server" \
 sleep 2
 
 for i in $(seq 1 $N); do
-    tmux new-window -t $SESSION:$i -n "node-$i" \
-    "cd node_server/node && go run main.go node-$i"
+  tmux new-window -t $SESSION:$i -n "node-$i" \
+  "cd node_server/node && SERVER_ADDR=$SERVER_ADDR go run main.go node-$i"
 done
 
 tmux select-window -t $SESSION:0
