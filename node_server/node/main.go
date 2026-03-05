@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-func NewNode(id string) (*model.Node, error) {
+func NewNode(id string, serverAddr string) (*model.Node, error) {
 
 	// Génération d'une clé privée RSA 2048 bits
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -41,12 +41,13 @@ func NewNode(id string) (*model.Node, error) {
 		PrivateKey: privateKey,
 		PublicKey:  &publicKey,
 		Listener:   listener,
+		ServerAddr: serverAddr,
 	}, nil
 
 }
 
-func FetchKeyFromServer(port int) (*rsa.PublicKey, error) {
-	conn, err := net.Dial("tcp", "localhost:8080")
+func FetchKeyFromServer(port int, serverAddr string) (*rsa.PublicKey, error) {
+	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,12 @@ func main() {
 
 	id := os.Args[1]
 
-	node, err := NewNode(id)
+	serverAddr := os.Getenv("SERVER_ADDR")
+	if serverAddr == "" {
+		serverAddr = "localhost:8080"
+	}
+
+	node, err := NewNode(id, serverAddr)
 	if err != nil {
 		fmt.Println("Error creating node:", err)
 		return
@@ -98,7 +104,7 @@ func main() {
 
 	go node.StartNode()
 
-	err = node.JoinServerList("localhost:8080")
+	err = node.JoinServerList(serverAddr)
 	if err != nil {
 		fmt.Println("Error joining server:", err)
 	}
@@ -178,7 +184,7 @@ func main() {
 			}
 			data = subParts[1]
 
-			onion, err := Encapsulator_func(data, []int{dst}, publicKeys)
+			onion, err := Encapsulator_func(data, []int{dst}, publicKeys, serverAddr)
 			if err != nil {
 				fmt.Println("Erreur Encapsulator_func:", err)
 				continue
@@ -209,7 +215,7 @@ func main() {
 				route = append(route, p)
 			}
 
-			onion, err := Encapsulator_func(message, route, publicKeys)
+			onion, err := Encapsulator_func(message, route, publicKeys, serverAddr)
 			if err != nil {
 				fmt.Println("Erreur Encapsulator_func:", err)
 				continue
@@ -305,7 +311,7 @@ func main() {
 			fmt.Printf("Route automatique: %v\n", route)
 
 			// Encapsulate in onion layers and send to the first node
-			onion, err := Encapsulator_func(message, route, publicKeys)
+			onion, err := Encapsulator_func(message, route, publicKeys, serverAddr)
 			if err != nil {
 				fmt.Println("Erreur encapsulation:", err)
 				continue
@@ -340,13 +346,13 @@ func main() {
 }
 
 // Encapsulator_func wraps the message in multiple encryption layers
-func Encapsulator_func(message string, route []int, publicKeys map[int]*rsa.PublicKey) (string, error) {
+func Encapsulator_func(message string, route []int, publicKeys map[int]*rsa.PublicKey, serverAddr string) (string, error) {
 
 	//Fetching keys if needed
 	for _, port := range route {
 		if _, ok := publicKeys[port]; !ok {
 			fmt.Println("Key not found searching for it ...")
-			key, err := FetchKeyFromServer(port)
+			key, err := FetchKeyFromServer(port, serverAddr)
 			if err != nil {
 				return "", fmt.Errorf("error fetching public key for port %d: %v", port, err)
 			}

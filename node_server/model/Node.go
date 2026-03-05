@@ -22,6 +22,7 @@ type Node struct {
 	PrivateKey *rsa.PrivateKey
 	PublicKey  *rsa.PublicKey
 	Listener   net.Listener
+	ServerAddr string // Adresse du serveur d'annuaire
 }
 
 // fonction quasi-reprise de l'exemple : https://pkg.go.dev/crypto/cipher#NewGCM
@@ -87,7 +88,7 @@ func (n *Node) StartNode() {
 
 // ///
 func (n *Node) GetNodesList() (string, error) {
-	conn, err := net.Dial("tcp", "localhost:8080")
+	conn, err := net.Dial("tcp", n.ServerAddr)
 	if err != nil {
 		return "", err
 	}
@@ -221,7 +222,7 @@ func (n *Node) Stop() {
 
 	// Send QUIT to server to leave the list
 	// TODO: Implement QUIT message to directory server
-	conn, err := net.Dial("tcp", "localhost:8080")
+	conn, err := net.Dial("tcp", n.ServerAddr)
 	if err == nil {
 		msg := fmt.Sprintf("QUIT:%s\n", n.ID)
 		conn.Write([]byte(msg))
