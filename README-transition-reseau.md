@@ -1,20 +1,18 @@
 # Transition localhost → Réseau réel (IP)
 
-## Contexte
-
-Jusqu'à présent, notre projet de Dynamic Onion Routing (DOR) fonctionnait entièrement en **localhost** : le serveur d'annuaire, les nœuds relais et les nœuds destinataires tournaient tous sur la même machine. Toutes les connexions TCP utilisaient `localhost` ou `127.0.0.1` comme adresse.
-
-L'objectif de cette branche est de **supprimer toutes les dépendances à localhost** pour permettre au système de fonctionner sur un **réseau réel**, avec plusieurs machines physiques (ou virtuelles) qui communiquent entre elles via leurs adresses IP réelles.
-
----
-
 ## Principe général des modifications
 
-Deux axes de changement ont été nécessaires :
+Les modifications sont organisées en **5 axes** :
 
-Le **premier axe** concerne les connexions vers le serveur d'annuaire. Chaque nœud doit connaître l'adresse IP du serveur d'annuaire (qui peut tourner sur une autre machine). On a introduit une variable d'environnement `SERVER_ADDR` que chaque nœud lit au démarrage. Si elle n'est pas définie, la valeur par défaut reste `localhost:8080`, ce qui permet de continuer à tester en local sans rien changer.
+**Axe 1 — Adresse du serveur configurable** : Chaque nœud doit connaître l'adresse IP du serveur d'annuaire (qui peut tourner sur une autre machine). On a introduit une variable d'environnement `SERVER_ADDR` que chaque nœud lit au démarrage. Si elle n'est pas définie, la valeur par défaut reste `localhost:8080`, ce qui permet de continuer à tester en local sans rien changer.
 
-Le **second axe** concerne les communications entre nœuds. Auparavant, un nœud était identifié uniquement par son port (ex: `4567`), et pour communiquer avec lui on faisait `localhost:4567`. Maintenant, un nœud est identifié par son adresse complète `ip:port` (ex: `192.168.1.2:4567`). Ce changement impacte toute la chaîne : le format des routes, l'encapsulation en oignon, le protocole RELAY, le serveur d'annuaire, et les commandes utilisateur.
+**Axe 2 — Identification des nœuds par ip:port** : Auparavant, un nœud était identifié uniquement par son port (ex: `4567`), et pour communiquer avec lui on faisait `localhost:4567`. Maintenant, un nœud est identifié par son adresse complète `ip:port` (ex: `192.168.1.2:4567`). Ce changement impacte toute la chaîne : le format des routes, l'encapsulation en oignon, le protocole RELAY, le serveur d'annuaire, et les commandes utilisateur.
+
+**Axe 3 — Écoute sur toutes les interfaces (0.0.0.0)** : Le serveur et les nœuds écoutent explicitement sur `0.0.0.0` pour accepter les connexions depuis n'importe quelle machine du réseau, pas seulement depuis localhost.
+
+**Axe 4 — Détection automatique de l'IP du nœud** : Quand un nœud s'enregistre auprès du serveur, le serveur lui renvoie son adresse IP (telle que vue par le serveur) dans la réponse `INIT_ACK`. Le nœud stocke cette IP et l'utilise pour s'identifier dans le réseau (notamment pour s'exclure des routes aléatoires dans la commande `SEND`).
+
+**Axe 5 — Configuration pare-feu** : Sur Windows, des règles de pare-feu sont nécessaires pour autoriser les connexions TCP entrantes sur le port 8080 (serveur) et sur les ports dynamiques des nœuds.
 
 ---
 
@@ -28,9 +26,12 @@ Aucune modification. Ce fichier contenait déjà un champ `Ip string` dans la st
 
 ### 2. `node_server/model/Node.go`
 
-#### Ajout du champ `ServerAddr` dans la struct `Node`
+#### Ajout des champs `ServerAddr` et `NodeIP` dans la struct `Node`
 
-On a ajouté un champ `ServerAddr string` à la struct `Node`. Ce champ stocke l'adresse du serveur d'annuaire (par exemple `192.168.1.10:8080`). Il est initialisé à la création du nœud et utilisé par toutes les méthodes qui ont besoin de contacter le serveur.
+On a ajouté deux champs à la struct `Node` :
+
+- `ServerAddr string` : stocke l'adresse du serveur d'annuaire (par exemple `192.168.1.10:8080`). Initialisé à la création du nœud et utilisé par toutes les méthodes qui contactent le serveur.
+- `NodeIP string` : stocke l'adresse IP publique du nœud telle que vue par le serveur (par exemple `192.168.1.11`). Rempli automatiquement lors de l'enregistrement via `INIT_ACK`.
 
 Avant, l'adresse `localhost:8080` était écrite en dur dans chaque méthode. Maintenant, chaque méthode utilise `n.ServerAddr`.
 
@@ -59,6 +60,25 @@ Le format du RELAY a changé. Avant, c'était `RELAY:<port>:<payload_chiffré>`.
 
 Maintenant, c'est `RELAY:<ip>:<port>:<payload_chiffré>`. Le nœud fait un `SplitN(data, ":", 3)` pour extraire l'IP, le port et le payload. Il reconstruit l'adresse complète avec `nextAddr = subParts[0] + ":" + subParts[1]`, puis appelle `SendTo(nextAddr, payload)`.
 
+#### Suppression de l'import `strconv`
+
+Le package `strconv` était utilisé dans le handler RELAY pour convertir le port avec `strconv.Atoi()`. Comme on manipule maintenant directement des adresses `string`, cet import n'est plus nécessaire et a été supprimé.
+
+#### Modification de `JoinServerList()`
+
+Le parsing de la réponse `INIT_ACK` a été enrichi. Avant, le nœud vérifiait simplement que la réponse commençait par `INIT_ACK`. Maintenant, le serveur renvoie `INIT_ACK:<n>:<ip>` et le nœud extrait son IP pour la stocker dans `n.NodeIP` :
+
+```go
+if strings.HasPrefix(response, "INIT_ACK") {
+    ackParts := strings.SplitN(response, ":", 3)
+    if len(ackParts) >= 3 {
+        n.NodeIP = ackParts[2]
+    }
+    fmt.Printf("[%s] Registered to directory server (IP: %s)\n", n.ID, n.NodeIP)
+    return nil
+}
+```
+
 ---
 
 ### 3. `node_server/node/main.go`
@@ -77,7 +97,7 @@ node, err := NewNode(id, serverAddr)
 
 #### Modification de `NewNode()`
 
-La fonction accepte maintenant un second paramètre `serverAddr string` et le stocke dans la struct `Node`.
+La fonction accepte maintenant un second paramètre `serverAddr string` et le stocke dans la struct `Node`. De plus, l'adresse d'écoute est passée de `":0"` à `"0.0.0.0:0"` pour écouter explicitement sur toutes les interfaces réseau.
 
 #### Modification de `FetchKeyFromServer()`
 
@@ -105,15 +125,23 @@ Toutes les commandes interactives ont été mises à jour pour utiliser des adre
 
 **RELAY** — C'est la commande qui a le plus changé structurellement. Avant : `RELAY:<port1>:<port2>:...:<message>` avec `:` comme séparateur. Le problème est qu'une adresse `ip:port` contient elle-même un `:`, donc on ne peut plus utiliser `:` comme séparateur entre les nœuds de la route. La solution : utiliser la **virgule** comme séparateur. Après : `RELAY:<ip1>:<port1>,<ip2>:<port2>,...,<message>`. Le message est après la dernière virgule.
 
-**SEND** — Avant : `SEND:<nbr>:<port>:<message>`. Après : `SEND:<nbr>:<ip>:<port>:<message>`. Le parsing de la liste retournée par le serveur a aussi changé car le format passe de `name|port|key` à `name|ip|port|key` (4 champs au lieu de 3).
+**SEND** — Avant : `SEND:<nbr>:<port>:<message>`. Après : `SEND:<nbr>:<ip>:<port>:<message>`. Le parsing de la liste retournée par le serveur a aussi changé car le format passe de `name|port|key` à `name|ip|port|key` (4 champs au lieu de 3). L'exclusion du nœud courant de la route utilise maintenant `node.NodeIP` (l'IP reçue du serveur) au lieu de tenter de la reconstruire depuis `ServerAddr`.
 
 ---
 
 ### 4. `node_server/List_Serveur/serveur.go`
 
+#### Écoute sur `0.0.0.0:8080`
+
+Le serveur écoutait sur `":8080"`. On a changé en `"0.0.0.0:8080"` pour s'assurer qu'il accepte les connexions depuis toutes les interfaces réseau. C'est indispensable pour que des machines distantes puissent se connecter au serveur.
+
 #### Modification de `getNodesList()`
 
 Le format de la liste renvoyée aux nœuds inclut maintenant l'IP. Avant : `name|port|key`. Après : `name|ip|port|key`. Le `fmt.Sprintf` passe de `"%s|%d|%s"` à `"%s|%s|%d|%s"` avec l'ajout de `info.Ip`.
+
+#### Modification du handler `INIT`
+
+La réponse `INIT_ACK` inclut maintenant l'IP du nœud telle que vue par le serveur. Avant : `INIT_ACK:<n>`. Après : `INIT_ACK:<n>:<ip>`. Cela permet au nœud de connaître sa propre adresse IP sans avoir à la détecter lui-même.
 
 #### Modification du handler `GET_KEY`
 
@@ -143,65 +171,260 @@ Même principe : ajout de `SERVER_ADDR="${SERVER_ADDR:-localhost:8080}"` en haut
 
 ---
 
-## Comment utiliser
+## Guide d'utilisation complet
 
-### En local (comme avant, rien ne change)
+### Mode local (comme avant, rien ne change)
 
 ```bash
 ./start_nodes_tmux.sh -n 4
 ```
 
-Les nœuds utilisent `localhost:8080` par défaut.
+Les nœuds utilisent `localhost:8080` par défaut. Tout fonctionne comme avant nos modifications.
 
-### En réseau réel
+---
 
-Supposons 3 machines :
-- **Machine A** (192.168.1.10) : serveur d'annuaire
-- **Machine B** (192.168.1.11) : nœud 1
-- **Machine C** (192.168.1.12) : nœud 2
+### Mode réseau réel
 
-Sur la machine A, lancer le serveur :
+#### Prérequis
+
+- Go installé sur toutes les machines (`go version` pour vérifier)
+- Le code du projet présent sur chaque machine (via `git clone`)
+- Les machines doivent être sur le **même réseau local** (même sous-réseau IP)
+- Se placer sur la bonne branche : `git checkout feature/transition-from-localhost`
+
+#### Configuration pare-feu (Windows uniquement)
+
+Sur Windows, ouvrir PowerShell **en administrateur** et exécuter :
+
+```powershell
+New-NetFirewallRule -DisplayName "Allow ICMP" -Protocol ICMPv4 -Action Allow
+New-NetFirewallRule -DisplayName "Allow DOR Server" -Protocol TCP -LocalPort 8080 -Action Allow
+New-NetFirewallRule -DisplayName "Allow DOR Nodes" -Protocol TCP -LocalPort 49000-65535 -Action Allow
+```
+
+La première règle autorise le ping (utile pour tester la connectivité). La deuxième ouvre le port 8080 pour le serveur d'annuaire. La troisième ouvre la plage de ports dynamiques utilisés par les nœuds.
+
+Sur Linux, si le pare-feu est actif :
+
 ```bash
-cd node_server/List_Serveur && go run serveur.go
+sudo ufw allow 8080/tcp
+sudo ufw allow 49000:65535/tcp
 ```
 
-Sur la machine B, lancer un nœud :
+#### Trouver les adresses IP
+
+Sur Windows :
+```
+ipconfig
+```
+Chercher l'adresse IPv4 sous la carte Wi-Fi ou Ethernet (ex: `192.168.1.71`).
+
+Sur Linux :
 ```bash
-SERVER_ADDR=192.168.1.10:8080 go run main.go node-1
+ip addr
 ```
-
-Sur la machine C, lancer un autre nœud :
+ou
 ```bash
-SERVER_ADDR=192.168.1.10:8080 go run main.go node-2
+hostname -I
 ```
 
-Les commandes utilisent maintenant des adresses IP complètes :
+#### Vérifier la connectivité entre les machines
+
+Depuis chaque machine, vérifier qu'on peut atteindre les autres :
+
+```bash
+ping 192.168.1.71
 ```
-MSG:192.168.1.12:4567:Salut depuis la machine B !
-SEND:1:192.168.1.12:4567:Message auto-routé
-RELAY:192.168.1.12:4567,192.168.1.11:8901,Message via route manuelle
+
+Si le ping ne répond pas, vérifier le pare-feu.
+
+#### Lancer le serveur d'annuaire
+
+Sur la machine qui fera office de serveur (ex: `192.168.1.71`) :
+
+```bash
+cd node_server/List_Serveur
+go run serveur.go
+```
+
+Le serveur affiche `Directory Server on port 8080`.
+
+#### Lancer les nœuds
+
+Sur chaque machine, lancer un nœud en lui indiquant l'adresse du serveur.
+
+Sur Windows (PowerShell) :
+```powershell
+cd node_server\node
+$env:SERVER_ADDR="192.168.1.71:8080"
+go run main.go node-1
+```
+
+Sur Linux :
+```bash
+cd node_server/node
+SERVER_ADDR=192.168.1.71:8080 go run main.go node-2
+```
+
+Chaque nœud doit afficher :
+```
+[node-X] Started in port : XXXXX
+[node-X] Registered to directory server (IP: 192.168.1.XX)
+```
+
+L'IP affichée est celle détectée par le serveur. C'est cette IP qui sera utilisée pour le routage.
+
+#### Vérifier l'enregistrement
+
+Dans le terminal du serveur, taper `LIST` :
+
+```
+=== Noeuds connectés ===
+  . node-1 - Addr: 192.168.1.71:52637, Key: MIIBIjAN...
+  . node-2 - Addr: 192.168.1.90:42003, Key: MIIBIjAN...
+Total: 2
+```
+
+Les IP doivent être **différentes** si les nœuds sont sur des machines différentes.
+
+---
+
+### Commandes disponibles
+
+#### MSG — Message direct chiffré
+
+Envoie un message directement à un nœud en le chiffrant avec sa clé publique.
+
+```
+MSG:<ip>:<port>:<message>
+```
+
+Exemple :
+```
+MSG:192.168.1.90:42003:Salut depuis Windows !
+```
+
+#### RELAY — Route manuelle chiffrée
+
+Envoie un message via une route définie manuellement. Chaque nœud intermédiaire déchiffre une couche et relaye au suivant. Les adresses sont séparées par des **virgules**, le message est après la dernière virgule.
+
+```
+RELAY:<ip1>:<port1>,<ip2>:<port2>,...,<message>
+```
+
+Exemple (passer par node-2 avant d'arriver à node-3) :
+```
+RELAY:192.168.1.90:42003,192.168.1.71:63998,Message secret multi-hop
+```
+
+#### SEND — Route automatique aléatoire
+
+Construit automatiquement une route aléatoire en récupérant la liste des nœuds depuis le serveur. Le premier paramètre est le nombre de relais intermédiaires souhaités.
+
+```
+SEND:<nbr_relais>:<ip>:<port>:<message>
+```
+
+Exemple (1 relai aléatoire avant la destination) :
+```
+SEND:1:192.168.1.90:42003:Message auto-routé !
+```
+
+Le nœud affiche la route choisie :
+```
+Route automatique: [192.168.1.71:63998 192.168.1.90:42003]
+```
+
+Il faut au minimum 3 nœuds enregistrés pour utiliser `SEND` avec 1 relai (l'expéditeur, le relai, et la destination).
+
+#### FETCH — Récupérer une clé publique
+
+Se connecte directement à un nœud pour récupérer sa clé publique et la stocker localement.
+
+```
+FETCH:<ip>:<port>
+```
+
+#### LIST — Afficher les nœuds enregistrés
+
+Interroge le serveur et affiche la liste de tous les nœuds.
+
+```
+LIST:
+```
+
+#### QUIT — Quitter proprement
+
+Se désenregistre du serveur et arrête le nœud.
+
+```
+QUIT:
 ```
 
 ---
 
-## Prochaines étapes
+### Test avec VirtualBox (exemple validé)
 
-### Écoute sur 0.0.0.0
+Voici la procédure exacte qui a été testée et validée :
 
-Actuellement, les nœuds écoutent avec `net.Listen("tcp", ":0")` ce qui devrait accepter les connexions de toutes les interfaces. Cependant, il faut vérifier que le serveur d'annuaire (qui écoute sur `:8080`) est bien accessible depuis les autres machines. Selon la configuration réseau et le pare-feu, il pourrait être nécessaire de spécifier explicitement `0.0.0.0:8080`.
+**Configuration VirtualBox** :
+1. Éteindre la VM
+2. Configuration → Réseau → Adaptateur 1 → Mode : **Accès par pont** (Bridged Adapter)
+3. Sélectionner la carte Wi-Fi dans le champ "Nom"
+4. Démarrer la VM
 
-### Gestion de l'adresse locale du nœud dans SEND
+**Machine Windows (192.168.1.71)** — 3 terminaux PowerShell :
 
-Dans la commande `SEND`, le nœud doit s'exclure de la route aléatoire. Actuellement, on reconstruit l'adresse locale du nœud à partir de `ServerAddr`, ce qui n'est pas fiable (l'IP du nœud n'est pas forcément la même que celle du serveur). Il faudrait soit que le nœud connaisse sa propre IP (passée en paramètre ou détectée), soit que le serveur renvoie l'IP du nœud dans la réponse `INIT_ACK`.
+Terminal 1 (serveur) :
+```powershell
+cd node_server\List_Serveur
+go run serveur.go
+```
 
-### Pare-feu et ports
+Terminal 2 (node-1) :
+```powershell
+cd node_server\node
+$env:SERVER_ADDR="192.168.1.71:8080"
+go run main.go node-1
+```
 
-Pour que le réseau fonctionne, les ports utilisés par les nœuds (attribués dynamiquement) doivent être accessibles depuis les autres machines. Il faudra soit ouvrir une plage de ports, soit permettre aux nœuds de choisir un port fixe configurable.
+Terminal 3 (node-2) :
+```powershell
+cd node_server\node
+$env:SERVER_ADDR="192.168.1.71:8080"
+go run main.go node-2
+```
+
+**VM Linux (192.168.1.90)** — 1 terminal :
+
+```bash
+cd Projet-DOR/node_server/node
+SERVER_ADDR=192.168.1.71:8080 go run main.go node-vm
+```
+
+**Tests effectués et validés** :
+
+1. `LIST` sur le serveur → 3 nœuds avec 2 IP différentes
+2. `MSG:192.168.1.90:42003:Hello` depuis Windows → message reçu sur la VM
+3. `MSG:192.168.1.71:52637:Hello` depuis la VM → message reçu sur Windows
+4. `SEND:1:192.168.1.71:52637:Test` depuis la VM → routage en oignon via un relai sur une autre machine
+
+---
+
+## Prochaines étapes possibles
 
 ### Sécurité du protocole
 
 Le protocole entre le nœud et le serveur d'annuaire (INIT, GET_LIST, GET_KEY) n'est pas chiffré. Sur un réseau réel, un attaquant pourrait intercepter les clés publiques ou la liste des nœuds. Une amélioration serait d'ajouter du TLS pour ces communications.
 
+### Port fixe configurable
+
+Les nœuds utilisent des ports dynamiques (`:0`), ce qui complique la configuration du pare-feu (il faut ouvrir une large plage). Permettre aux nœuds de choisir un port fixe via une variable d'environnement (ex: `NODE_PORT=5000`) faciliterait le déploiement.
+
 ### Tests automatisés
 
-Mettre en place des tests qui simulent un réseau multi-machines (par exemple avec Docker Compose ou des conteneurs) pour valider automatiquement le bon fonctionnement du routage en oignon en conditions réseau réelles.
+Mettre en place des tests qui simulent un réseau multi-machines (par exemple avec Docker Compose) pour valider automatiquement le bon fonctionnement du routage en oignon en conditions réseau réelles.
+
+### Rotation dynamique des circuits
+
+Actuellement, la route est fixée au moment de l'envoi. Une amélioration serait de changer automatiquement de route à intervalles réguliers pour renforcer l'anonymat.
