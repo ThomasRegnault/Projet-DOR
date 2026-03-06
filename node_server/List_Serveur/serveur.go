@@ -20,7 +20,7 @@ import (
 //var nbrNodes int = 0
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
+	listener, err := net.Listen("tcp", "0.0.0.0:8080")
 	if err != nil {
 		fmt.Println("Error listen:", err)
 		return
@@ -148,7 +148,7 @@ func handleConnection(conn net.Conn) {
 		}
 
 		fmt.Printf("[+] Node %s registered (Port: %d)\n", name, port)
-		_, err = conn.Write([]byte("INIT_ACK:" + name + "\n"))
+		_, err = conn.Write([]byte("INIT_ACK:" + name + ":" + ip_split[0] + "\n"))
 		if err != nil {
 			return
 		}

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 )
 
@@ -23,6 +22,7 @@ type Node struct {
 	PublicKey  *rsa.PublicKey
 	Listener   net.Listener
 	ServerAddr string // Adresse du serveur d'annuaire
+	NodeIP     string
 }
 
 // fonction quasi-reprise de l'exemple : https://pkg.go.dev/crypto/cipher#NewGCM
@@ -263,7 +263,12 @@ func (n *Node) JoinServerList(addrlist string) error {
 
 	response = strings.TrimSpace(response)
 	if strings.HasPrefix(response, "INIT_ACK") {
-		fmt.Printf("[%s] Registered to directory server\n", n.ID)
+		// Format: INIT_ACK:<name>:<ip>
+		ackParts := strings.SplitN(response, ":", 3)
+		if len(ackParts) >= 3 {
+			n.NodeIP = ackParts[2]
+		}
+		fmt.Printf("[%s] Registered to directory server (IP: %s)\n", n.ID, n.NodeIP)
 		return nil
 	}
 

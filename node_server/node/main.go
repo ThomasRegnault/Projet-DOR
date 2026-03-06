@@ -29,7 +29,7 @@ func NewNode(id string, serverAddr string) (*model.Node, error) {
 	// Générer une clé public à partir de la clé privée
 	publicKey := privateKey.PublicKey
 
-	addr := fmt.Sprintf(":%d", 0)
+	addr := fmt.Sprintf("0.0.0.0:%d", 0)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func main() {
 			// on peut ensuite la stoquer dans le dico annuaire port -> clé pub
 			if pubKey, ok := pubKeyInterface.(*rsa.PublicKey); ok {
 				publicKeys[targetAddr] = pubKey
-				fmt.Printf("Enregistrement de la clé (publique) du port réalisé avec succée %d!\n", targetAddr)
+				fmt.Printf("Enregistrement de la clé (publique) de %s réalisé avec succée!\n", targetAddr)
 			}
 
 		case "MSG":
@@ -250,7 +250,7 @@ func main() {
 
 			var candidates []string // adresses ip:port des candidats
 			destFound := false
-			nodeAddr := fmt.Sprintf("%s:%d", node.ServerAddr[:strings.LastIndex(node.ServerAddr, ":")], node.Port)
+			nodeAddr := fmt.Sprintf("%s:%d", node.NodeIP, node.Port)
 			// On construit l'adresse locale du noeud pour l'exclure de la route
 
 			for _, entry := range entries {
