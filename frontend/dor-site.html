@@ -595,61 +595,6 @@
 </style>
 </head>
 <body>
-
-<!-- LOGIN PAGE -->
-<div id="login-page">
-  <div class="login-box">
-    <div class="login-logo">
-      <div class="login-logo-icon">🧅</div>
-      <div>
-        <h1>DOR Messenger</h1>
-        <span>DYNAMIC ONION ROUTING</span>
-      </div>
-    </div>
-
-    <div class="login-tabs">
-      <button class="login-tab active" onclick="switchTab('login')">Connexion</button>
-      <button class="login-tab" onclick="switchTab('register')">Inscription</button>
-    </div>
-
-    <div id="login-form">
-      <div class="login-group">
-        <label>PSEUDONYME</label>
-        <input type="text" id="login-username" placeholder="ex: Shadow42" autocomplete="off">
-      </div>
-      <div class="login-group">
-        <label>MOT DE PASSE</label>
-        <input type="password" id="login-password" placeholder="••••••••">
-      </div>
-      <div class="login-error" id="login-error">Identifiants incorrects</div>
-      <button class="login-btn" onclick="doLogin()">Se connecter</button>
-    </div>
-
-    <div id="register-form" style="display:none">
-      <div class="login-group">
-        <label>PSEUDONYME</label>
-        <input type="text" id="reg-username" placeholder="ex: Shadow42" autocomplete="off">
-      </div>
-      <div class="login-group">
-        <label>MOT DE PASSE</label>
-        <input type="password" id="reg-password" placeholder="••••••••">
-      </div>
-      <div class="login-group">
-        <label>CONFIRMER</label>
-        <input type="password" id="reg-confirm" placeholder="••••••••">
-      </div>
-      <div class="login-error" id="reg-error">Les mots de passe ne correspondent pas</div>
-      <button class="login-btn" onclick="doRegister()">Créer le compte</button>
-    </div>
-
-    <div class="login-badge">
-      <strong>🔒 Connexion sécurisée</strong>
-      Vos messages transitent par plusieurs nœuds chiffrés.<br>
-      Personne ne peut tracer vos communications.
-    </div>
-  </div>
-</div>
-
 <!-- APP -->
 <div id="app">
   <div class="app-layout" id="app-layout">
@@ -718,6 +663,8 @@
             <textarea id="msg-input" rows="1" placeholder="Écrivez un message..." onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
           </div>
           <button class="send-btn" onclick="sendMessage()" id="send-btn">➤</button>
+          <input type="file" id="file-input" style="display:none" onchange="uploadFile()">
+          <button onclick="document.getElementById('file-input').click()">📎</button>
         </div>
       </div>
     </div>
@@ -734,143 +681,106 @@
 </div>
 
 <script>
-// === DONNÉES FICTIVES (remplacées par l'API backend ensuite) ===
-const DEMO_USERS = [
-  { id: 'amine',   name: 'Amine',   avatar: 'a', profile: 'WiFi5',   ip: '172.18.0.3', port: 9001 },
-  { id: 'sarah',   name: 'Sarah',   avatar: 'b', profile: '4G',      ip: '172.18.0.4', port: 9002 },
-  { id: 'thomas',  name: 'Thomas',  avatar: 'c', profile: 'WiFi6',   ip: '172.18.0.5', port: 9003 },
-  { id: 'bot-1',   name: 'bot-1',   avatar: 'd', profile: '3G',      ip: '172.18.0.6', port: 9101 },
-  { id: 'bot-2',   name: 'bot-2',   avatar: 'e', profile: '5G',      ip: '172.18.0.7', port: 9102 },
-  { id: 'bot-3',   name: 'bot-3',   avatar: 'f', profile: 'EDGE',    ip: '172.18.0.8', port: 9103 },
-];
+/* =========================
+   STATE GLOBAL
+========================= */
 
-const DEMO_MESSAGES = {
-  'amine': [
-    { from: 'amine', text: 'Salut ! Tu vois mes messages ?', time: '14:02', relays: ['bot-2', 'thomas'], ack: true },
-    { from: 'me',    text: 'Oui ! Le routage en oignon fonctionne.', time: '14:03', relays: ['sarah', 'bot-1'], ack: true },
-    { from: 'amine', text: 'Personne ne peut tracer ce message 👌', time: '14:04', relays: ['bot-3', 'bot-2'], ack: true },
-  ],
-  'sarah': [
-    { from: 'sarah', text: 'Mon nœud est en profil 4G pour la démo.', time: '13:55', relays: ['amine', 'bot-1'], ack: true },
-    { from: 'me',    text: 'Parfait, ça simule un vrai smartphone !', time: '13:56', relays: ['bot-2', 'thomas'], ack: true },
-  ],
-  'thomas': [],
-  'bot-1': [],
-  'bot-2': [],
-  'bot-3': [],
-};
-
-const RELAY_PROFILES = {
-  'amine':  { profile: 'laptop_WIFI5',      ip: '172.18.0.3', port: 9001 },
-  'sarah':  { profile: 'smartphone_4G',     ip: '172.18.0.4', port: 9002 },
-  'thomas': { profile: 'laptop_WIFI6',      ip: '172.18.0.5', port: 9003 },
-  'bot-1':  { profile: 'smartphone_3G',     ip: '172.18.0.6', port: 9101 },
-  'bot-2':  { profile: 'smartphone_5G',     ip: '172.18.0.7', port: 9102 },
-  'bot-3':  { profile: 'smartphone_EDGE',   ip: '172.18.0.8', port: 9103 },
-};
-
-let currentUser = null;
 let currentChat = null;
 let conversations = {};
+let contacts = [];
 
-// === AUTH ===
-function switchTab(tab) {
-  document.querySelectorAll('.login-tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'login') || (i === 1 && tab === 'register'));
-  });
-  document.getElementById('login-form').style.display = tab === 'login' ? 'block' : 'none';
-  document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
-}
+// utilisateur local (remplace login)
+const currentUser = "Node-1";
 
-function doLogin() {
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  if (!username || !password) return;
-  // TODO: appel API POST /login
-  enterApp(username);
-}
+/* =========================
+   INIT UI
+========================= */
 
-function doRegister() {
-  const username = document.getElementById('reg-username').value.trim();
-  const password = document.getElementById('reg-password').value;
-  const confirm = document.getElementById('reg-confirm').value;
-  if (!username || !password) return;
-  if (password !== confirm) {
-    document.getElementById('reg-error').style.display = 'block';
-    return;
-  }
-  document.getElementById('reg-error').style.display = 'none';
-  // TODO: appel API POST /register
-  enterApp(username);
-}
-
-function enterApp(username) {
-  currentUser = username;
-  document.getElementById('login-page').style.display = 'none';
+window.addEventListener("DOMContentLoaded", () => {
   document.getElementById('app').style.display = 'flex';
-  document.getElementById('my-name').textContent = username;
-  document.getElementById('my-avatar').textContent = username[0].toUpperCase();
-  conversations = JSON.parse(JSON.stringify(DEMO_MESSAGES));
+
+  document.getElementById('my-name').textContent = currentUser;
+  document.getElementById('my-avatar').textContent = currentUser[0].toUpperCase();
+
+  contacts = [
+    { id: "alice", name: "Alice", avatar: "a", profile: "WiFi" },
+    { id: "bob", name: "Bob", avatar: "b", profile: "4G" },
+    { id: "bot-1", name: "Relay-1", avatar: "d", profile: "NODE" }
+  ];
+
   renderContacts();
-}
+});
 
-function doLogout() {
-  currentUser = null; currentChat = null;
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('login-page').style.display = 'flex';
-  document.getElementById('login-username').value = '';
-  document.getElementById('login-password').value = '';
-}
+/* =========================
+   CONTACTS
+========================= */
 
-// === CONTACTS ===
 function renderContacts(filter = '') {
   const list = document.getElementById('contacts-list');
   list.innerHTML = '';
-  DEMO_USERS.filter(u => u.name.toLowerCase().includes(filter.toLowerCase())).forEach(user => {
-    const msgs = conversations[user.id] || [];
-    const last = msgs[msgs.length - 1];
-    const unread = msgs.filter(m => m.from !== 'me' && !m.read).length;
-    const item = document.createElement('div');
-    item.className = 'contact-item' + (currentChat === user.id ? ' active' : '');
-    item.onclick = () => openChat(user.id);
-    item.innerHTML = `
-      <div class="avatar ${user.avatar}">${user.name[0].toUpperCase()}</div>
-      <div class="online-dot"></div>
-      <div class="contact-info">
-        <div class="contact-name">${user.name}</div>
-        <div class="contact-last">${last ? (last.from === 'me' ? '→ ' : '') + last.text : '📡 ' + user.profile}</div>
-      </div>
-      <div class="contact-meta">
-        <div class="contact-time">${last ? last.time : ''}</div>
-        ${unread > 0 ? `<span class="contact-badge">${unread}</span>` : ''}
-      </div>`;
-    list.appendChild(item);
-  });
+
+  contacts
+    .filter(u => u.name.toLowerCase().includes(filter.toLowerCase()))
+    .forEach(user => {
+
+      const msgs = conversations[user.id] || [];
+      const last = msgs[msgs.length - 1];
+
+      const unread = msgs.filter(m => m.from !== 'me' && !m.read).length;
+
+      const item = document.createElement('div');
+      item.className = 'contact-item' + (currentChat === user.id ? ' active' : '');
+
+      item.onclick = () => openChat(user.id);
+
+      item.innerHTML = `
+        <div class="avatar ${user.avatar}">
+          ${user.name[0].toUpperCase()}
+        </div>
+
+        <div class="online-dot"></div>
+
+        <div class="contact-info">
+          <div class="contact-name">${user.name}</div>
+          <div class="contact-last">
+            ${last ? (last.from === 'me' ? '→ ' : '') + last.text : '📡 ' + user.profile}
+          </div>
+        </div>
+
+        <div class="contact-meta">
+          <div class="contact-time">${last ? last.time : ''}</div>
+          ${unread > 0 ? `<span class="contact-badge">${unread}</span>` : ''}
+        </div>
+      `;
+
+      list.appendChild(item);
+    });
 }
 
 function filterContacts() {
   renderContacts(document.getElementById('search-input').value);
 }
 
-// === CHAT ===
-function openChat(userId) {
+/* =========================
+   CHAT LOGIC
+========================= */
+
+async function openChat(userId) {
   currentChat = userId;
-  const user = DEMO_USERS.find(u => u.id === userId);
+
+  const user = contacts.find(u => u.id === userId);
+
   document.getElementById('no-chat').style.display = 'none';
   const ac = document.getElementById('active-chat');
   ac.style.display = 'flex';
+
   document.getElementById('chat-name').textContent = user.name;
   document.getElementById('chat-avatar').textContent = user.name[0].toUpperCase();
-  document.getElementById('chat-avatar').className = `avatar ${user.avatar}`;
-  document.getElementById('chat-status').textContent = `en ligne · nœud ${user.profile}`;
-  const relays = pickRelays(userId);
-  document.getElementById('route-label').textContent = `${relays.length} relais`;
-  document.getElementById('app-layout').classList.add('chat-open');
-  renderMessages();
+  document.getElementById('chat-status').textContent = `en ligne · ${user.profile}`;
+
+  await loadMessages(userId);
+
   renderContacts();
-  const input = document.getElementById('msg-input');
-  input.value = ''; autoResize(input);
-  setTimeout(() => document.getElementById('chat-messages').scrollTop = 99999, 50);
 }
 
 function closeChat() {
@@ -878,112 +788,174 @@ function closeChat() {
   currentChat = null;
 }
 
-function pickRelays(excludeId) {
-  return DEMO_USERS.filter(u => u.id !== excludeId && u.id !== currentUser && u.id.startsWith('bot')).slice(0, 2);
-}
+/* =========================
+   MESSAGES
+========================= */
 
 function renderMessages() {
   const container = document.getElementById('chat-messages');
+
+  const isNearBottom =
+    container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
   const msgs = conversations[currentChat] || [];
-  container.innerHTML = '';
-  container.innerHTML += `<div class="day-divider">Aujourd'hui</div>`;
-  container.innerHTML += `<div class="msg-system">🔐 Chiffrement bout-en-bout activé · ${pickRelays(currentChat).length} relais</div>`;
+
+  container.innerHTML = `<div class="day-divider">Aujourd'hui</div>`;
+
   msgs.forEach(msg => {
     const isMe = msg.from === 'me';
-    const sender = isMe ? currentUser : DEMO_USERS.find(u => u.id === msg.from)?.name;
+
     const div = document.createElement('div');
     div.className = `msg ${isMe ? 'me' : 'other'}`;
-    const relayStr = msg.relays ? msg.relays.map(r => DEMO_USERS.find(u => u.id === r)?.name || r).join(' → ') : '';
+
     div.innerHTML = `
-      ${!isMe ? `<div class="msg-sender">${sender}</div>` : ''}
-      <div class="msg-bubble">${escHtml(msg.text)}</div>
+      ${!isMe ? `<div class="msg-sender">${msg.from}</div>` : ''}
+      <div class="msg-bubble">${renderContent(msg.text)}</div>
       <div class="msg-meta">
         ${msg.time}
-        ${relayStr ? `<span class="msg-route">🧅 via ${relayStr}</span>` : ''}
         ${msg.ack ? `<span class="msg-ack">✓✓</span>` : ''}
-      </div>`;
+      </div>
+    `;
+
     container.appendChild(div);
-    msg.read = true;
   });
-  container.scrollTop = container.scrollHeight;
+
+  if (isNearBottom) {
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+function renderContent(text) {
+  if (text.startsWith("📎")) {
+    const filename = text.replace("📎 ", "");
+    const url = "/uploads/" + filename.split("/").pop();
+
+    if (filename.match(/\.(jpg|jpeg|png|gif)$/i)) {
+      return `<img src="${url}" style="max-width:200px;border-radius:8px;">`;
+    }
+
+    return `<a href="${url}" target="_blank">${filename}</a>`;
+  }
+
+  return escHtml(text);
 }
 
-function sendMessage() {
+async function uploadFile() {
+  const input = document.getElementById("file-input");
+  const file = input.files[0];
+
+  if (!file || !currentChat) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("sender", currentUser);
+  formData.append("receiver", currentChat);
+
+  const res = await fetch("/upload", {
+    method: "POST",
+    body: formData
+  });
+
+  const data = await res.json();
+
+  // affichage
+  const now = new Date();
+  const time = now.toLocaleTimeString().slice(0,5);
+
+  const msg = {
+    from: 'me',
+    text: `📎 ${file.name}`,
+    time,
+    ack: true
+  };
+
+  if (!conversations[currentChat]) {
+    conversations[currentChat] = [];
+  }
+
+  conversations[currentChat].push(msg);
+
+  renderMessages();
+}
+
+/* =========================
+   SEND MESSAGE (READY FOR GO BACKEND)
+========================= */
+
+async function sendMessage() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
+
   if (!text || !currentChat) return;
+
   const now = new Date();
-  const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-  const relays = pickRelays(currentChat).map(u => u.id);
-  const msg = { from: 'me', text, time, relays, ack: false };
-  if (!conversations[currentChat]) conversations[currentChat] = [];
+  const time = now.toLocaleTimeString().slice(0,5);
+
+  // affichage immédiat (optimiste)
+  const msg = {
+    from: 'me',
+    text,
+    time,
+    ack: false
+  };
+
+  if (!conversations[currentChat]) {
+    conversations[currentChat] = [];
+  }
+
   conversations[currentChat].push(msg);
-  input.value = ''; autoResize(input);
-  renderMessages(); renderContacts();
-  // Simulate ACK
-  setTimeout(() => {
+  renderMessages();
+
+  input.value = '';
+  autoResize(input);
+
+  try {
+    await fetch("/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender: currentUser,
+        receiver: currentChat,
+        type: "text",
+        content: text,
+        filename: ""
+      })
+    });
+
     msg.ack = true;
-    renderMessages();
-    // Simulate typing then response
-    if (!currentChat.startsWith('bot')) {
-      const ti = document.getElementById('typing-indicator');
-      ti.style.display = 'flex';
-      setTimeout(() => {
-        ti.style.display = 'none';
-        const responses = [
-          "Message reçu ! Le routage fonctionne.",
-          "👌 Toujours anonyme.",
-          "Aucun relais ne connaît l'expéditeur ET le destinataire.",
-          "Le NACK/Retry garantit la livraison même si un nœud tombe.",
-        ];
-        const r = responses[Math.floor(Math.random() * responses.length)];
-        const respRelays = pickRelays(currentUser).map(u => u.id);
-        conversations[currentChat].push({ from: currentChat, text: r, time, relays: respRelays, ack: true });
-        renderMessages(); renderContacts();
-      }, 1500 + Math.random() * 1000);
-    }
-  }, 800);
+  } catch (e) {
+    console.error(e);
+  }
+
+  renderMessages();
+  renderContacts();
 }
 
-// === ROUTE MODAL ===
-function showRouteModal() {
-  if (!currentChat) return;
-  const user = DEMO_USERS.find(u => u.id === currentChat);
-  const relays = pickRelays(currentChat);
-  const steps = document.getElementById('route-steps');
-  steps.innerHTML = '';
-  const me = { name: currentUser, detail: 'Vous · nœud source', icon: '👤', cls: 'src', badge: 'SOURCE', bc: 'badge-src' };
-  const dest = { name: user.name, detail: `${user.profile} · ${user.ip}:${user.port}`, icon: '👤', cls: 'dst', badge: 'DESTINATION', bc: 'badge-dst' };
-  const chain = [me, ...relays.map(r => ({
-    name: r.name,
-    detail: `${RELAY_PROFILES[r.id]?.profile || '?'} · ${r.ip}:${r.port}`,
-    icon: '🔄', cls: 'relay', badge: 'RELAIS', bc: 'badge-relay'
-  })), dest];
-  chain.forEach((step, i) => {
-    const div = document.createElement('div');
-    div.className = 'route-step';
-    div.innerHTML = `
-      <div class="route-step-icon ${step.cls}">${step.icon}</div>
-      <div class="route-step-info">
-        <div class="route-step-name">${step.name}</div>
-        <div class="route-step-detail">${step.detail}</div>
-      </div>
-      <div>
-        <span class="route-step-badge ${step.bc}">${step.badge}</span>
-        ${i > 0 && i < chain.length - 1 ? `<br><span class="route-step-badge badge-enc" style="margin-top:3px">CHIFFRÉ</span>` : ''}
-      </div>`;
-    steps.appendChild(div);
-  });
-  document.getElementById('route-modal').classList.add('show');
+async function loadMessages(userId) {
+  const res = await fetch(`/messages?sender=${currentUser}&receiver=${userId}`);
+  const data = await res.json();
+
+  conversations[userId] = data.map(m => ({
+    from: m.sender === currentUser ? 'me' : m.sender,
+    text: m.type === "text"
+      ? m.content
+      : `📎 ${m.filename}`,
+    time: m.time?.slice(11,16) || "",
+    ack: true
+  }));
+
+  renderMessages();
 }
 
-function closeModal(e) {
-  if (e.target === document.getElementById('route-modal'))
-    document.getElementById('route-modal').classList.remove('show');
+/* =========================
+   UTILS
+========================= */
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 }
 
 function autoResize(el) {
@@ -992,16 +964,11 @@ function autoResize(el) {
 }
 
 function escHtml(t) {
-  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return t.replace(/&/g,'&amp;')
+          .replace(/</g,'&lt;')
+          .replace(/>/g,'&gt;');
 }
 
-// Enter key on login
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.getElementById('login-page').style.display !== 'none') {
-    const tab = document.querySelector('.login-tab.active').textContent;
-    tab === 'Connexion' ? doLogin() : doRegister();
-  }
-});
 </script>
 </body>
 </html>

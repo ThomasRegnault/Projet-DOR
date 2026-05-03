@@ -1,6 +1,6 @@
 FROM alpine:3.14
 
-RUN apk add --no-cache wget tar iproute2 iputils git tmux
+RUN apk add --no-cache wget tar git
 
 ENV GO_VERSION=1.25.6
 ENV NETWORK_PROFILE=default
@@ -18,12 +18,10 @@ ARG CACHEBUST=1
 
 RUN git clone https://github.com/ThomasRegnault/Projet-DOR.git
 
-COPY apply_network_profile.sh /usr/projet-dor/Projet-DOR/node_server/node/
+WORKDIR /usr/projet-dor/Projet-DOR/node_server/List_Serveur/
 
-RUN chmod +x /usr/projet-dor/Projet-DOR/node_server/node/apply_network_profile.sh
+RUN go get modernc.org/sqlite
 
-WORKDIR /usr/projet-dor/Projet-DOR/node_server/node/
+RUN go build -o server serveur.go
 
-RUN go build -o main main.go
-
-CMD ["sh", "-c", "./apply_network_profile.sh $NETWORK_PROFILE && tmux new-session -s myapp ./main node && tail -f /dev/null"]
+CMD ["sh", "-c", "./server"]

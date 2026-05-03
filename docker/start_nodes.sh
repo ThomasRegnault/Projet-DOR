@@ -5,6 +5,16 @@ source $1
 docker network rm dor 2>/dev/null
 docker network create dor
 
+docker run -dit \
+  --cap-add=NET_ADMIN \
+  --network dor \
+  --name "server" \
+  -e NODE_ADDR="host.docker.internal" \
+  -p 8080:8080 \
+  --add-host=host.docker.internal:host-gateway \
+  --rm \
+  server-amd:latest
+
 y=0
 for PROFILE in smartphone_2G server laptop_WIFI5; do
   COUNT=$(eval echo \$$PROFILE)
@@ -13,10 +23,10 @@ for PROFILE in smartphone_2G server laptop_WIFI5; do
 
   i=1
   while [ $i -le $COUNT ]; do
-    docker run -it -d \
+    docker run -dit \
       --cap-add=NET_ADMIN \
       --network dor \
-      --name "$PROFILE"$i \
+      --name "$PROFILE-"$i \
       -e NETWORK_PROFILE="$PROFILE" \
       -e PORT=$((9000 + i + y)) \
       -e NODE_ADDR="host.docker.internal" \

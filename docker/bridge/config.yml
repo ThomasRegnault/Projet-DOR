@@ -1,0 +1,20 @@
+commands:
+  outFilePath: "test_1.csv"
+  phase1:
+    from: random
+    to: random
+    command: "MSG:%host%:%port%:%data%"
+    data:
+      length: 8
+      value: random
+    repeat: 30
+    parallel: 1
+  phase2:
+    from: random
+    to: random
+    command: "MSG:%host%:%port%:%data%"
+    data:
+      length: 10000
+      value: random
+    repeat: 400
+    parallel: 1

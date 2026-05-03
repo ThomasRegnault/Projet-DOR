@@ -1,6 +1,6 @@
 smartphone_2G=0
 server=0
-laptop_WIFI5=3
+laptop_WIFI5=40
 
 # RAM
 smartphone_2G_RAM="128m"

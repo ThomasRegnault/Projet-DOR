@@ -15,7 +15,9 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"net/http"
 	"os"
+	"project/node_server/web"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,7 +52,7 @@ type Node struct {
 	Port          int
 	PrivateKey    *rsa.PrivateKey
 	PublicKey     *rsa.PublicKey
-	KeyMu         sync.RWMutex          // protège PrivateKey et PublicKey
+	KeyMu         sync.RWMutex // protège PrivateKey et PublicKey
 	Listener      net.Listener
 	ServerAddr    string                // Adresse du serveur d'annuaire (ex: "192.168.1.10:8080")
 	NodeIP        string                // IP du nœud vue par le serveur
@@ -109,15 +111,34 @@ func DecryptAES(key []byte, ciphertext []byte) ([]byte, error) {
 
 func (n *Node) StartNode() {
 	fmt.Printf("[%s] Started in port : %d\n", n.ID, n.Port)
-	for {
-		conn, err := n.Listener.Accept()
-		if err != nil {
-			return
+
+	go func() {
+		for {
+			conn, err := n.Listener.Accept()
+			if err != nil {
+				fmt.Println("Erreur accept:", err)
+				continue
+			}
+
+			go n.handlerroutine(conn)
 		}
+	}()
 
-		go n.handlerroutine(conn)
+	manager := web.NewWEBSQLManager("./chat.db")
+	manager.RegisterRoutes()
+
+	// 🔹 HTTP server (frontend)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./frontend/dor-site.html")
+	})
+
+	port := ":20000"
+	fmt.Println("HTTP sur http://localhost" + port)
+
+	err := http.ListenAndServe(port, nil)
+	if err != nil {
+		fmt.Println("Erreur HTTP:", err)
 	}
-
 }
 
 // ///
@@ -139,8 +160,7 @@ func (n *Node) GetNodesList() (string, error) {
 	return strings.TrimSpace(response), nil
 }
 
-////
-
+// //
 func (n *Node) handlerroutine(conn net.Conn) {
 	defer conn.Close()
 
