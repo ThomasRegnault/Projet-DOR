@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"project/node_server/model"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -70,7 +69,7 @@ func FetchKeyFromServer(addr string, serverAddr string) (*rsa.PublicKey, error) 
 	response = strings.TrimSpace(response)
 
 	if strings.HasPrefix(response, "ERROR:") {
-		return nil, fmt.Errorf(response)
+		return nil, fmt.Errorf("%s", response)
 	}
 
 	parts := strings.SplitN(response, ":", 2)
@@ -92,6 +91,9 @@ type CachedKey struct {
 
 func main() {
 	publicKeys := make(map[string]CachedKey)
+
+	// --- Capture les logs pour la page web ---
+	startStdoutBridge()
 
 	var id string
 	if len(os.Args) >= 2 {
@@ -121,7 +123,9 @@ func main() {
 		fmt.Println("Error joining server:", err)
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
+	startWebUI(node, serverAddr, publicKeys)
+
+	/* scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("  FETCH:<ip>:<port>                              - Récupérer la clé publique d'un noeud")
 	fmt.Println("  MSG:<ip>:<port>:<message>                      - Message direct")
 	fmt.Println("  RELAY:<ip>:<port>,<ip>:<port>,...,<message>    - Relai multi-hop (route manuelle)")
@@ -293,7 +297,12 @@ func main() {
 		default:
 			fmt.Println("Unknown command. Use MSG or RELAY.")
 		}
+	} */
+	quit := make(chan struct{})
+	select {
+	case <-quit:
 	}
+
 }
 
 func SendWithRetry(
@@ -483,14 +492,14 @@ func Encapsulator_func(
 	msgID := model.GenerateMsgID() //original one seen by src and dst
 	// array for the nacks
 	nackArray := []string{}
-	for _ = range len(route) {
+	for range len(route) {
 		nackArray = append(nackArray, model.GenerateMsgID("nack"))
 	}
 
 	var returnOnion string
 	var firstReturnHop string
 
-	if returnRoute != nil && len(returnRoute) > 0 {
+	if len(returnRoute) > 0 {
 		firstReturnHop = returnRoute[0]
 		// the most inner layer return ACK for the sender
 		innerLayer := &model.OnionLayer{

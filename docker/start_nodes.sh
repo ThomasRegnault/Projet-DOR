@@ -19,8 +19,10 @@ for PROFILE in smartphone_2G server laptop_WIFI5; do
       --name "$PROFILE"$i \
       -e NETWORK_PROFILE="$PROFILE" \
       -e PORT=$((9000 + i + y)) \
+      -e UI_PORT=$((11000 + i)) \
       -e NODE_ADDR="host.docker.internal" \
       -p $((9000 + i + y)):$((9000 + i + y)) \
+      -p $((11000 + i + y)):$((11000 + i + y)) \
       --add-host=host.docker.internal:host-gateway \
       --rm \
       device-amd:latest

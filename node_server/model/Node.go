@@ -50,7 +50,7 @@ type Node struct {
 	Port          int
 	PrivateKey    *rsa.PrivateKey
 	PublicKey     *rsa.PublicKey
-	KeyMu         sync.RWMutex          // protège PrivateKey et PublicKey
+	KeyMu         sync.RWMutex // protège PrivateKey et PublicKey
 	Listener      net.Listener
 	ServerAddr    string                // Adresse du serveur d'annuaire (ex: "192.168.1.10:8080")
 	NodeIP        string                // IP du nœud vue par le serveur
@@ -247,8 +247,8 @@ func (n *Node) handlerroutine(conn net.Conn) {
 		}
 
 	case "FINAL":
-		//node final the destination
-		fmt.Printf("[%s] Message recu (MsgID : %s): \"%s\"\n", n.ID, layer.MsgID, layer.Message)
+		// nœud final : destination du message
+		fmt.Printf("[%s] Message recu (MsgID : %s) FROM:%s: \"%s\"\n", n.ID, layer.MsgID, conn.RemoteAddr().String(), layer.Message)
 		if layer.Next != "" && layer.Data != "" {
 			fmt.Printf("[%s] Envoi ACK pour %s via %s\n", n.ID, layer.MsgID, layer.Next)
 			err = n.SendTo(layer.Next, layer.Data)
