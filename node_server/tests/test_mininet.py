@@ -10,7 +10,7 @@ from mininet.log import setLogLevel, info
 
 # --- CONFIGURATION DU TEST ---
 NB_RELAIS = 10
-NB_MESSAGES = 50
+NB_MESSAGES = 300
 MAX_RETRIES = 3
 CHAOS_INTERVAL = 3  
 CHAOS_DURATION = 5  
